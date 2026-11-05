@@ -345,16 +345,16 @@ describe('concurrency-guard: strategy=merge — buffer overflow', () => {
       trace.push(`${ctx.message.messageId}:${ctx.message.content}`);
     };
 
-    const chain = busyChain(guard, downstream);
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const chain: Middleware[] = [guard, async (_ctx, next) => { await held; await next(); }, downstream];
     const pA = runMiddlewareChain(chain, makeCtx({ message: makeMsg('A', 'a') }));
-    await new Promise((r) => setTimeout(r, 10));
     const pB = runMiddlewareChain(chain, makeCtx({ message: makeMsg('B', 'b') }));
-    await new Promise((r) => setTimeout(r, 5));
     const pC = runMiddlewareChain(chain, makeCtx({ message: makeMsg('C', 'c') }));
-    await new Promise((r) => setTimeout(r, 5));
     const pD = runMiddlewareChain(chain, makeCtx({ message: makeMsg('D', 'd') }));
     const pE = runMiddlewareChain(chain, makeCtx({ message: makeMsg('E', 'e') }));
 
+    release();
     await Promise.all([pA, pB, pC, pD, pE]);
 
     // A + merged(B,C), D/E dropped
@@ -929,19 +929,19 @@ describe('concurrency-guard: strategy=merge — urgentPredicate', () => {
       trace.push(`${ctx.message.messageId}:${ctx.message.content}`);
     };
 
-    const chain = busyChain(guard, downstream);
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const chain: Middleware[] = [guard, async (_ctx, next) => { await held; await next(); }, downstream];
     const pA = runMiddlewareChain(chain, makeCtx({ message: makeMsg('A', 'alpha') }));
-    await new Promise((r) => setTimeout(r, 10));
 
     // B/C buffered while A is busy
     const pB = runMiddlewareChain(chain, makeCtx({ message: makeMsg('B', 'bravo') }));
-    await new Promise((r) => setTimeout(r, 5));
     const pC = runMiddlewareChain(chain, makeCtx({ message: makeMsg('C', 'charlie') }));
-    await new Promise((r) => setTimeout(r, 5));
 
     // D: /stop arrives — urgent, flushes B/C silently
     const pD = runMiddlewareChain(chain, makeCtx({ message: makeMsg('D', '/stop') }));
 
+    release();
     await Promise.all([pA, pB, pC, pD]);
 
     // A runs alone; B/C flushed; D (survivor) runs with /stop content

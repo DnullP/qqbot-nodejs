@@ -129,3 +129,8 @@ and expose the redirect's original status plus unknown-delivery classification. 
 fixture reproduced COS `q-signature`/`q-ak` and percent-encoded query-key leakage in both media
 request payloads and responses. Query keys are now decoded/normalized before redaction,
 including multiple signed URLs embedded in a text field; unrelated values remain visible.
+
+Windows CI exposed two inherited concurrency tests that assumed 10+5+5ms sleeps complete
+inside a 30ms busy interval. Both failed twice while the protocol regressions passed. Those
+two tests now explicitly hold/release the owner with a promise, retaining all queue/flush
+assertions without depending on OS timer granularity. No concurrency production code changed.
