@@ -29,6 +29,8 @@ export class ApiError extends Error {
     public readonly bizCode?: number,
     /** Original error message from the response body. */
     public readonly bizMessage?: string,
+    /** A write may have been accepted; never automatically resend or fall back. */
+    public readonly deliveryStatus?: "unknown",
   ) {
     super(message);
   }

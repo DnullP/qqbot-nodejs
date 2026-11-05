@@ -50,7 +50,7 @@ describe('fork protocol contracts', () => {
     expect(raw.msg_id).toBe('stale');
     expect(bodies[1]).toMatchObject({msg_type:2,stream:{reset:true},action_button:{stop_generate:true}});
     const failed=vi.fn(async()=>{throw new Error('delivery unknown');});vi.stubGlobal('fetch',failed);
-    await expect(api.sendProactiveRaw('c2c','fixture',creds,{content:'once'})).rejects.toThrow();
+    await expect(api.sendProactiveRaw('c2c','fixture',creds,{content:'once'})).rejects.toMatchObject({deliveryStatus:'unknown'});
     expect(failed).toHaveBeenCalledTimes(1);
   });
   it('observes full JSON envelopes with recursive credentials redacted and isolates observer failures', async () => {
@@ -134,4 +134,63 @@ it('observes token fetch safely while preserving token return value', async () =
   expect(events).toHaveLength(2);
   expect(JSON.stringify(events)).not.toContain('private-token');
   expect(JSON.stringify(events)).not.toContain('private-secret');
+});
+
+it.each([307,308])('does not replay proactive POSTs on a localhost %i redirect', async status => {
+  const {createServer}=await import('node:http');
+  const {once}=await import('node:events');
+  const received:Array<{method:string|undefined;url:string|undefined}>=[];
+  const server=createServer((request,response)=>{
+    received.push({method:request.method,url:request.url});
+    request.resume();
+    if(request.url?.endsWith('/messages')) {response.writeHead(status,{location:'/redirect-target'});response.end('{"message":"redirected"}');}
+    else {response.writeHead(200,{'content-type':'application/json'});response.end('{"id":"unexpected-replay"}');}
+  });
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  const address=server.address();if(!address||typeof address==='string') throw new Error('missing server port');
+  const tokens=new TokenManager();vi.spyOn(tokens,'getAccessToken').mockResolvedValue('synthetic-token');
+  const events:protocol.WireEvent[]=[];
+  const api=new MessageApi(new ApiClient({baseUrl:`http://127.0.0.1:${address.port}`,wireObserver:event=>{events.push(event);}}),tokens,{markdownSupport:false});
+  try {
+    for(const send of [
+      ()=>api.sendProactiveMessage('c2c','fixture','once',creds),
+      ()=>api.sendProactiveRaw('c2c','fixture',creds,{content:'once'}),
+      ()=>api.sendProactiveRich('c2c','fixture',creds,{markdown:{content:'once'}}),
+      ()=>api.sendProactiveTextChain('c2c','fixture',creds,'/status'),
+    ]) {
+      await expect(send()).rejects.toMatchObject({httpStatus:status,deliveryStatus:'unknown'});
+    }
+    expect(received).toEqual(Array.from({length:4},()=>({method:'POST',url:'/v2/users/fixture/messages'})));
+    expect(events.filter(event=>event.direction==='out')).toHaveLength(4);
+    expect(events.filter(event=>event.direction==='in').every(event=>event.status===status)).toBe(true);
+  } finally {server.closeAllConnections();await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
+});
+
+it('redacts COS credentials and encoded query keys in multiple embedded media URLs', async () => {
+  const signed='https://cos.example.invalid/object?q-sign-algorithm=sha1&q-ak=synthetic-key&q-sign-time=1%3B2&q-signature=synthetic-cos-signature&safe=retained';
+  const encoded='https://example.invalid/other?%73ignature=encoded-secret&other=retained';
+  const events:protocol.WireEvent[]=[];
+  vi.stubGlobal('fetch',async()=>new Response(JSON.stringify({url:signed,text:`first ${signed} second ${encoded}`})));
+  const api=new ApiClient({wireObserver:event=>{events.push(event);}});
+  await api.request('different-token','POST','/files',{url:signed,nested:{text:`first ${signed} second ${encoded}`}});
+  const serialized=JSON.stringify(events);
+  for(const secret of ['synthetic-key','synthetic-cos-signature','encoded-secret']) expect(serialized).not.toContain(secret);
+  expect(serialized).toContain('retained');
+  expect(serialized).toContain('/files');
+});
+
+it('keeps ordinary GET redirect behavior compatible', async () => {
+  const {createServer}=await import('node:http');const {once}=await import('node:events');
+  const requests:string[]=[];
+  const server=createServer((request,response)=>{
+    requests.push(`${request.method} ${request.url}`);
+    if(request.url==='/first') {response.writeHead(307,{location:'/second'});response.end();}
+    else {response.end('{"id":"get-result"}');}
+  });
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  const address=server.address();if(!address||typeof address==='string') throw new Error('missing server port');
+  try {
+    expect(await new ApiClient({baseUrl:`http://127.0.0.1:${address.port}`}).request('fixture','GET','/first')).toEqual({id:'get-result'});
+    expect(requests).toEqual(['GET /first','GET /second']);
+  } finally {server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });

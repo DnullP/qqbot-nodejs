@@ -20,6 +20,8 @@ export interface RequestOptions {
   timeoutMs?: number;
   redactBodyKeys?: string[];
   uploadRequest?: boolean;
+  /** Proactive writes use manual redirects to prevent implicit POST replay. */
+  redirect?: "follow" | "manual" | "error";
 }
 
 /**
@@ -51,6 +53,8 @@ export class ApiClient {
     options?: RequestOptions,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    const deliveryStatus = options?.redirect === "manual" ? "unknown" : undefined;
+    const deliveryHint = deliveryStatus ? "; delivery unknown, do not resend" : "";
 
     const headers: Record<string, string> = {
       Authorization: `QQBot ${accessToken}`,
@@ -69,7 +73,7 @@ export class ApiClient {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const fetchInit: RequestInit = { method, headers, signal: controller.signal };
+    const fetchInit: RequestInit = { method, headers, signal: controller.signal, ...(options?.redirect ? {redirect:options.redirect} : {}) };
     if (body) {
       fetchInit.body = JSON.stringify(body);
     }
@@ -94,10 +98,10 @@ export class ApiClient {
       observeWire(this.wireObserver,{transport:"http",direction:"lifecycle",stage:"network_error",url,payload:{message:formatErrorMessage(err)},capture:"incomplete"},[accessToken]);
       if (err instanceof Error && err.name === "AbortError") {
         this.logger?.error?.(`[qqbot:api] <<< Timeout after ${timeout}ms`);
-        throw new ApiError(`Request timeout [${path}]: exceeded ${timeout}ms`, 0, path);
+        throw new ApiError(`Request timeout [${path}]: exceeded ${timeout}ms${deliveryHint}`, 0, path, undefined, undefined, deliveryStatus);
       }
       this.logger?.error?.(`[qqbot:api] <<< Network error: ${formatErrorMessage(err)}`);
-      throw new ApiError(`Network error [${path}]: ${formatErrorMessage(err)}`, 0, path);
+      throw new ApiError(`Network error [${path}]: ${formatErrorMessage(err)}${deliveryHint}`, 0, path, undefined, undefined, deliveryStatus);
     } finally {
       clearTimeout(timeoutId);
     }
@@ -112,9 +116,12 @@ export class ApiClient {
       rawBody = await res.text();
     } catch (err) {
       throw new ApiError(
-        `Failed to read response [${path}]: ${formatErrorMessage(err)}`,
+        `Failed to read response [${path}]: ${formatErrorMessage(err)}${deliveryHint}`,
         res.status,
         path,
+        undefined,
+        undefined,
+        deliveryStatus,
       );
     }
     observeWire(this.wireObserver,{transport:"http",direction:"in",stage:"response",url,status:res.status,headers:Object.fromEntries(res.headers.entries()),...jsonWireBody(rawBody)},[accessToken]);
@@ -122,6 +129,10 @@ export class ApiClient {
 
     const contentType = res.headers.get("content-type") ?? "";
     const isHtmlResponse = contentType.includes("text/html") || rawBody.trimStart().startsWith("<");
+
+    if (options?.redirect === "manual" && res.status >= 300 && res.status < 400) {
+      throw new ApiError(`Redirect refused [${path}]: HTTP ${res.status}; delivery unknown, do not resend`, res.status, path, undefined, undefined, "unknown");
+    }
 
     if (!res.ok) {
       if (isHtmlResponse) {
@@ -162,16 +173,19 @@ export class ApiClient {
 
     if (isHtmlResponse) {
       throw new ApiError(
-        `QQ 服务端返回了非 JSON 响应（${path}），可能是临时故障，请稍后重试`,
+        `QQ 服务端返回了非 JSON 响应（${path}）${deliveryHint || "，可能是临时故障，请稍后重试"}`,
         res.status,
         path,
+        undefined,
+        undefined,
+        deliveryStatus,
       );
     }
 
     try {
       return JSON.parse(rawBody) as T;
     } catch {
-      throw new ApiError(`开放平台响应格式异常（${path}），请稍后重试`, res.status, path);
+      throw new ApiError(`开放平台响应格式异常（${path}）${deliveryHint || "，请稍后重试"}`, res.status, path, undefined, undefined, deliveryStatus);
     }
   }
 }

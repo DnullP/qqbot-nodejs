@@ -14,7 +14,7 @@ import type {
 import type { OfficialMessageFields } from "../message-fields.js";
 import { commandEnter, commandInput } from "../utils/text-chain.js";
 import { formatErrorMessage } from "../utils/format.js";
-import { ApiClient } from "./api-client.js";
+import { ApiClient, type RequestOptions } from "./api-client.js";
 import {
   channelMessagePath,
   dmMessagePath,
@@ -100,7 +100,7 @@ export class MessageApi {
     const token = await this.tokenManager.getAccessToken(creds.appId, creds.clientSecret);
     const body = this.buildProactiveBody(content);
     const path = messagePath(scope, targetId);
-    return this.sendAndNotify(creds.appId, token, "POST", path, body, { text: content });
+    return this.sendAndNotify(creds.appId, token, "POST", path, body, { text: content }, {redirect:"manual"});
   }
 
   /** Explicit unanchored send: strips passive anchors, never retries an uncertain POST. */
@@ -108,7 +108,7 @@ export class MessageApi {
     const cleaned = Object.fromEntries(Object.entries(body).filter(([key,value]) => value !== undefined && !["msg_id","event_id","msg_seq"].includes(key)));
     if (cleaned.msg_type === undefined) cleaned.msg_type = cleaned.markdown ? 2 : cleaned.ark ? 3 : cleaned.embed ? 4 : cleaned.media ? 7 : 0;
     const token = await this.tokenManager.getAccessToken(creds.appId,creds.clientSecret);
-    return this.sendAndNotify(creds.appId,token,"POST",messagePath(scope,targetId),cleaned,{text: typeof cleaned.content === "string" ? cleaned.content : undefined});
+    return this.sendAndNotify(creds.appId,token,"POST",messagePath(scope,targetId),cleaned,{text: typeof cleaned.content === "string" ? cleaned.content : undefined}, {redirect:"manual"});
   }
 
   /** Typed official message fields; platform permission still applies. */
@@ -321,8 +321,9 @@ export class MessageApi {
     path: string,
     body: unknown,
     meta: OutboundMeta,
+    options?: RequestOptions,
   ): Promise<MessageResponse> {
-    const result = await this.client.request<MessageResponse>(accessToken, method, path, body);
+    const result = await this.client.request<MessageResponse>(accessToken, method, path, body, options);
     if (result.ext_info?.ref_idx && this.messageSentHook) {
       try {
         this.messageSentHook(result.ext_info.ref_idx, meta);

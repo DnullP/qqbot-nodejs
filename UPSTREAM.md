@@ -22,7 +22,11 @@ The inherited CI contains verification only, and no package-publication workflow
   (also on `MessageApi`, using scope/targetId/credentials) explicitly omit top-level
   `msg_id`, `event_id` and `msg_seq`, including stale anchors on a reused target/body.
   Raw construction copies the input. These methods issue one POST with no uncertain-delivery
-  retry and no fallback to passive mode. Account quotas and platform permissions still apply.
+  retry and no fallback to passive mode. Proactive requests set `redirect: "manual"`, so
+  307/308 cannot implicitly replay the POST. Redirects, network failures and unreadable or
+  malformed success responses expose `ApiError.deliveryStatus: "unknown"`; callers must
+  reconcile delivery rather than retry or fall back. Ordinary API GET redirects remain
+  compatible. Account quotas and platform permissions still apply.
   Existing `send`, `sendRaw`, media, typing and stream helpers keep their original behavior.
 - `OfficialMessageFields` adds `prompt_keyboard`, `action_button`, `subscribe_id`,
   `feature_id` and legacy `stream {state,id,index,reset}`. The latter is **not** the separate
@@ -109,10 +113,19 @@ localhost WS server and synthetic token fetches. Run `pnpm typecheck`, `pnpm lin
 
 ### Known inherited coverage debt
 
-Fresh validation on 2026-11-05: all 205 tests across 11 files pass; typecheck, lint and build
+Fresh validation on 2026-11-05: all 209 tests across 11 files pass; typecheck, lint and build
 pass. `pnpm test:coverage` runs the same passing tests but exits 1 because inherited global
-thresholds are unmet: fork lines 43.14%, branches 37.18%, functions 42.64%, statements 43.26%.
+thresholds are unmet: fork lines 43.32%, branches 37.77%, functions 42.85%, statements 43.47%.
 A separate pristine 1.0.5 worktree confirms pre-existing debt: lines 39.33%, branches 34.08%,
 functions 39.43%, statements 39.27%. No threshold was lowered. CI gates the full test suite
 and runs coverage as a clearly named nonblocking report until the repository-wide coverage
 debt is addressed. This is not described as a passing coverage check.
+
+### Independent review corrections
+
+Localhost 307/308 fixtures first reproduced implicit POST replay, then passed after explicit
+proactive-only manual redirect handling. Four proactive helper families each issue one POST
+and expose the redirect's original status plus unknown-delivery classification. Another
+fixture reproduced COS `q-signature`/`q-ak` and percent-encoded query-key leakage in both media
+request payloads and responses. Query keys are now decoded/normalized before redaction,
+including multiple signed URLs embedded in a text field; unrelated values remain visible.
