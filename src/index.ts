@@ -178,3 +178,9 @@ export { UploadCache } from "./protocol/utils/upload-cache.js";
 export { formatErrorMessage, formatFileSize } from "./protocol/utils/format.js";
 
 export { UploadDailyLimitExceededError } from "./protocol/api/media-chunked.js";
+
+// Fork additions: explicit helpers/types; existing exports retain their semantics.
+export { InteractionEventType, requiresInteractionAck } from "./protocol/current-interactions.js";
+export { commandInput, commandEnter } from "./protocol/utils/text-chain.js";
+export type { OfficialMessageFields } from "./protocol/message-fields.js";
+export type { WireEvent, WireObserver } from "./protocol/observability.js";

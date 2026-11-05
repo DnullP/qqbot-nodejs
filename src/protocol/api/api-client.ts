@@ -8,6 +8,8 @@
  */
 
 import { ApiError, type ApiClientConfig, type Logger } from "../types.js";
+import { observeWire, jsonWireBody } from "../observability.js";
+import type { WireObserver } from "../observability.js";
 import { formatErrorMessage } from "../utils/format.js";
 
 const DEFAULT_BASE_URL = "https://api.sgroup.qq.com";
@@ -24,6 +26,7 @@ export interface RequestOptions {
  * Stateful HTTP client for the QQ Open Platform.
  */
 export class ApiClient {
+  private readonly wireObserver?: WireObserver;
   private readonly baseUrl: string;
   private readonly defaultTimeoutMs: number;
   private readonly fileUploadTimeoutMs: number;
@@ -31,6 +34,7 @@ export class ApiClient {
   private readonly resolveUserAgent: () => string;
 
   constructor(config: ApiClientConfig = {}) {
+    this.wireObserver = config.wireObserver;
     this.baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
     this.defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fileUploadTimeoutMs = config.fileUploadTimeoutMs ?? FILE_UPLOAD_TIMEOUT_MS;
@@ -81,11 +85,13 @@ export class ApiClient {
       this.logger.debug(`[qqbot:api] >>> Body: ${JSON.stringify(logBody)}`);
     }
 
+    observeWire(this.wireObserver,{transport:"http",direction:"out",stage:"request",url,headers,payload:body,capture:"complete"},[accessToken]);
     let res: Response;
     try {
       res = await fetch(url, fetchInit);
     } catch (err) {
       clearTimeout(timeoutId);
+      observeWire(this.wireObserver,{transport:"http",direction:"lifecycle",stage:"network_error",url,payload:{message:formatErrorMessage(err)},capture:"incomplete"},[accessToken]);
       if (err instanceof Error && err.name === "AbortError") {
         this.logger?.error?.(`[qqbot:api] <<< Timeout after ${timeout}ms`);
         throw new ApiError(`Request timeout [${path}]: exceeded ${timeout}ms`, 0, path);
@@ -111,6 +117,7 @@ export class ApiClient {
         path,
       );
     }
+    observeWire(this.wireObserver,{transport:"http",direction:"in",stage:"response",url,status:res.status,headers:Object.fromEntries(res.headers.entries()),...jsonWireBody(rawBody)},[accessToken]);
     this.logger?.debug?.(`[qqbot:api] <<< Body: ${rawBody}`);
 
     const contentType = res.headers.get("content-type") ?? "";

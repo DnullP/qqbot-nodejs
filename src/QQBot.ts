@@ -130,6 +130,7 @@ export interface ReplyTarget {
 }
 
 export interface QQBotOptions {
+  wireObserver?: import("./protocol/observability.js").WireObserver;
   /** QQ Open Platform AppID. */
   appId: string;
   /** QQ Open Platform AppSecret. */
@@ -324,11 +325,13 @@ export class QQBot {
       logger: this.logger,
       userAgent: this.userAgent,
       baseUrl: options.baseUrl,
+      wireObserver: options.wireObserver,
     });
     this.tokenManager = new TokenManager({
       logger: this.logger,
       userAgent: this.userAgent,
       baseUrl: options.tokenBaseUrl,
+      wireObserver: options.wireObserver,
     });
     this.messageApi = new MessageApi(this.apiClient, this.tokenManager, {
       markdownSupport: options.markdownSupport === true,
@@ -548,6 +551,7 @@ export class QQBot {
     if (signal.aborted) return;
 
     this.gateway = new GatewayConnection({
+      wireObserver: this.opts.wireObserver,
       account: this.account,
       abortSignal: signal,
       log: this.logger,
@@ -595,6 +599,7 @@ export class QQBot {
 
     const webhook = new WebhookTransport(
       {
+        wireObserver: this.opts.wireObserver,
         appId: this.creds.appId,
         appSecret: this.creds.clientSecret,
         port: this.opts.webhook?.port,
@@ -614,6 +619,10 @@ export class QQBot {
         },
         onError: (err) => {
           void this.emit("error", err);
+        },
+        onRawEvent: (type,data) => {
+          const ctx: RawEventContext = {bot:this,eventType:type,data,state:{},receivedAt:Date.now()};
+          void this.emit("rawEvent",ctx);
         },
         onMessage: (raw) => this.handleInboundMessage(raw),
         onInteraction: (event) => {
@@ -850,6 +859,23 @@ export class QQBot {
     const body: Record<string, unknown> = { content };
     if (opts?.msgId) body.msg_id = opts.msgId;
     return this.messageApi.sendDmMessageRaw(guildId, this.creds, body);
+  }
+
+  /** Explicit proactive sends ignore passive anchors even on a reused ReplyTarget. */
+  async sendProactiveText(target: ReplyTarget, content: string): Promise<MessageResponse> {
+    return this.messageApi.sendProactiveMessage(target.scope,target.targetId,content,this.creds);
+  }
+
+  async sendProactiveRaw(target: ReplyTarget, body: Record<string, unknown>): Promise<MessageResponse> {
+    return this.messageApi.sendProactiveRaw(target.scope,target.targetId,this.creds,body);
+  }
+
+  async sendProactiveRich(target: ReplyTarget, body: import("./protocol/message-fields.js").OfficialMessageFields): Promise<MessageResponse> {
+    return this.messageApi.sendProactiveRich(target.scope,target.targetId,this.creds,body);
+  }
+
+  async sendProactiveTextChain(target: ReplyTarget, text: string, options: {mode?: "input" | "enter"; show?: string; reference?: boolean} = {}): Promise<MessageResponse> {
+    return this.messageApi.sendProactiveTextChain(target.scope,target.targetId,this.creds,text,options);
   }
 
   /** Send a typing indicator (C2C only). */

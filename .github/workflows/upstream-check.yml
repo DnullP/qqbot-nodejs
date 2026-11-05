@@ -1,0 +1,25 @@
+name: Official upstream check
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 2 * * 1'
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compare official HEAD with pinned baseline
+        run: node scripts/check-upstream.mjs --output upstream-check
+      - name: Summarize
+        run: cat upstream-check/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: official-upstream-diff
+          path: upstream-check/

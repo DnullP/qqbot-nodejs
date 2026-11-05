@@ -19,6 +19,7 @@
  * ```
  */
 
+import { observeWire, jsonWireBody } from "../observability.js";
 import { dispatchEvent } from "../gateway/event-dispatcher.js";
 import type { Logger } from "../types.js";
 import type {
@@ -68,7 +69,11 @@ export class WebhookTransport implements EventTransport {
 
     this.log?.info?.(`[webhook] starting on port ${port}, path ${path}`);
 
-    await this.server.listen(port, path, (req) => this.handleRequest(req));
+    await this.server.listen(port, path, async (req) => {
+      const response = await this.handleRequest(req);
+      observeWire(this.opts.wireObserver,{transport:"webhook",direction:"out",stage:"response",status:response.status,headers:response.headers,...jsonWireBody(response.body)},[this.opts.appSecret]);
+      return response;
+    });
 
     this.log?.info?.(`[webhook] listening on :${port}${path}`);
 
@@ -104,6 +109,7 @@ export class WebhookTransport implements EventTransport {
   // ============ Request handler ============
 
   private async handleRequest(req: WebhookRequest): Promise<WebhookResponse> {
+    observeWire(this.opts.wireObserver, {transport:"webhook",direction:"in",stage:"received",headers:req.headers,...jsonWireBody(req.body.toString("utf8"))}, [this.opts.appSecret]);
     // Parse body
     let payload: WebhookPayload;
     try {
@@ -212,12 +218,17 @@ export class WebhookTransport implements EventTransport {
         break;
       case "interaction":
         try {
-          await this.callbacks.onInteraction?.(result.event);
+          if (this.callbacks.onInteraction) await this.callbacks.onInteraction(result.event);
+          else await this.callbacks.onRawEvent?.(eventType,data);
         } catch (err) {
           this.callbacks.onError?.(
             err instanceof Error ? err : new Error(String(err)),
           );
         }
+        break;
+      case "raw":
+        try { await this.callbacks.onRawEvent?.(result.type, result.data); }
+        catch (err) { this.callbacks.onError?.(err instanceof Error ? err : new Error(String(err))); }
         break;
       case "ignore":
         break;

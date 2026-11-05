@@ -11,6 +11,8 @@ import type {
   OutboundMeta,
   StreamMessageRequest,
 } from "../types.js";
+import type { OfficialMessageFields } from "../message-fields.js";
+import { commandEnter, commandInput } from "../utils/text-chain.js";
 import { formatErrorMessage } from "../utils/format.js";
 import { ApiClient } from "./api-client.js";
 import {
@@ -99,6 +101,25 @@ export class MessageApi {
     const body = this.buildProactiveBody(content);
     const path = messagePath(scope, targetId);
     return this.sendAndNotify(creds.appId, token, "POST", path, body, { text: content });
+  }
+
+  /** Explicit unanchored send: strips passive anchors, never retries an uncertain POST. */
+  async sendProactiveRaw(scope: ChatScope, targetId: string, creds: Credentials, body: Record<string, unknown>): Promise<MessageResponse> {
+    const cleaned = Object.fromEntries(Object.entries(body).filter(([key,value]) => value !== undefined && !["msg_id","event_id","msg_seq"].includes(key)));
+    if (cleaned.msg_type === undefined) cleaned.msg_type = cleaned.markdown ? 2 : cleaned.ark ? 3 : cleaned.embed ? 4 : cleaned.media ? 7 : 0;
+    const token = await this.tokenManager.getAccessToken(creds.appId,creds.clientSecret);
+    return this.sendAndNotify(creds.appId,token,"POST",messagePath(scope,targetId),cleaned,{text: typeof cleaned.content === "string" ? cleaned.content : undefined});
+  }
+
+  /** Typed official message fields; platform permission still applies. */
+  async sendProactiveRich(scope: ChatScope, targetId: string, creds: Credentials, body: OfficialMessageFields): Promise<MessageResponse> {
+    return this.sendProactiveRaw(scope,targetId,creds,{...body});
+  }
+
+  /** Sends an encoded Markdown input/direct-send link, without a passive anchor. */
+  async sendProactiveTextChain(scope: ChatScope, targetId: string, creds: Credentials, text: string, options: {mode?: "input" | "enter"; show?: string; reference?: boolean} = {}): Promise<MessageResponse> {
+    const content = options.mode === "enter" ? commandEnter(text,scope) : commandInput(text,options);
+    return this.sendProactiveRich(scope,targetId,creds,{markdown:{content},msg_type:2});
   }
 
   async sendChannelMessage(opts: {

@@ -1,7 +1,7 @@
 {
   "name": "@tencent-connect/qqbot-nodejs",
   "version": "1.0.5",
-  "description": "Tencent QQ Bot Node.js SDK — protocol-level client for the QQ Open Platform (HTTP + WebSocket Gateway, message + media + streaming).",
+  "description": "Tencent QQ Bot Node.js SDK \u2014 protocol-level client for the QQ Open Platform (HTTP + WebSocket Gateway, message + media + streaming).",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -36,7 +36,8 @@
     "ci:prepare-test-pkg": "node scripts/prepare-test-pkg.js",
     "prepack": "npm run build",
     "playground": "tsx examples/playground/index.ts",
-    "example:webhook": "tsx examples/webhook/index.ts"
+    "example:webhook": "tsx examples/webhook/index.ts",
+    "check:upstream": "node scripts/check-upstream.mjs"
   },
   "dependencies": {
     "ws": "^8.21.0"
@@ -102,5 +103,6 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "private": true
 }

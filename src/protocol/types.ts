@@ -107,6 +107,7 @@ export interface OutboundMeta {
 
 /** Configuration for the core HTTP client. */
 export interface ApiClientConfig {
+  wireObserver?: import("./observability.js").WireObserver;
   baseUrl?: string;
   defaultTimeoutMs?: number;
   fileUploadTimeoutMs?: number;
@@ -211,13 +212,22 @@ export interface InteractionEvent {
       user_id?: string;
       feature_id?: string;
       message_id?: string;
+      feedback_opt?: string;
+      checked?: number;
+      action?: string | number;
+      message_scene?: unknown;
+      authorize_data?: Record<string, unknown>;
+      [key: string]: unknown;
     };
+    [key: string]: unknown;
   };
 }
 
 // ============ Gateway WebSocket Types ============
 
 export interface WSPayload {
+  id?: string;
+  [key: string]: unknown;
   op: number;
   d: unknown;
   s?: number;

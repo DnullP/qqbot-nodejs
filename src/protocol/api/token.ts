@@ -5,6 +5,7 @@
  * All state encapsulated in the class — no module-level globals.
  */
 
+import { observeWire, jsonWireBody, type WireObserver } from "../observability.js";
 import type { Logger } from "../types.js";
 import { formatErrorMessage } from "../utils/format.js";
 
@@ -33,9 +34,11 @@ export class TokenManager {
   private readonly logger?: Logger;
   private readonly resolveUserAgent: () => string;
   private readonly baseUrl: string;
+  private readonly wireObserver?: WireObserver;
 
-  constructor(config?: { logger?: Logger; userAgent?: string | (() => string); baseUrl?: string }) {
+  constructor(config?: { logger?: Logger; userAgent?: string | (() => string); baseUrl?: string; wireObserver?: WireObserver }) {
     this.logger = config?.logger;
+    this.wireObserver = config?.wireObserver;
     const ua = config?.userAgent ?? "qqbot-nodejs/unknown";
     this.resolveUserAgent = typeof ua === "function" ? ua : () => ua;
     this.baseUrl = config?.baseUrl ?? DEFAULT_TOKEN_BASE_URL;
@@ -198,6 +201,7 @@ export class TokenManager {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DEFAULT_TOKEN_TIMEOUT_MS);
 
+    observeWire(this.wireObserver,{transport:"token",direction:"out",stage:"request",url,payload:{appId,clientSecret},capture:"complete"},[clientSecret]);
     let response: Response;
     try {
       response = await fetch(url, {
@@ -225,6 +229,7 @@ export class TokenManager {
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
+      observeWire(this.wireObserver,{transport:"token",direction:"in",stage:"response",url,status:response.status,...jsonWireBody(errorBody)},[clientSecret]);
       throw new Error(
         `Token fetch failed: HTTP ${response.status}${errorBody ? ` — ${errorBody.slice(0, 200)}` : ""}`,
       );
@@ -233,6 +238,7 @@ export class TokenManager {
     let data: { access_token?: string; expires_in?: number };
     try {
       const rawBody = await response.text();
+      observeWire(this.wireObserver,{transport:"token",direction:"in",stage:"response",url,status:response.status,...jsonWireBody(rawBody)},[clientSecret]);
       const logBody = rawBody.replace(/"access_token"\s*:\s*"[^"]+"/g, '"access_token": "***"');
       this.logger?.debug?.(`[qqbot:token:${appId}] <<< Body: ${logBody}`);
       data = JSON.parse(rawBody);

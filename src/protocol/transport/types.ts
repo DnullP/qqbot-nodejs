@@ -24,6 +24,7 @@ export interface EventTransportCallbacks {
   onError?: (error: Error) => void;
   onMessage: (msg: InboundMessage) => void | Promise<void>;
   onInteraction?: (event: InteractionEvent) => void | Promise<void>;
+  onRawEvent?: (type: string, data: unknown) => void | Promise<void>;
 }
 
 // ============ Transport interface ============
@@ -66,6 +67,7 @@ export interface WebSocketTransportOptions {
 }
 
 export interface WebhookTransportOptions {
+  wireObserver?: import("../observability.js").WireObserver;
   /** Bot AppID. */
   appId: string;
   /** Bot AppSecret (used for Ed25519 signature verification). */

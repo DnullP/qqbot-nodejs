@@ -9,6 +9,11 @@
 // ---- Types ----
 export * from "./types.js";
 
+export * from "./observability.js";
+export * from "./current-interactions.js";
+export * from "./message-fields.js";
+export * from "./utils/text-chain.js";
+
 // ---- API ----
 export { ApiClient, type RequestOptions } from "./api/api-client.js";
 export { TokenManager, type BackgroundRefreshOptions } from "./api/token.js";

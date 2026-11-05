@@ -17,7 +17,7 @@ export default {
     [
       '@semantic-release/npm',
       {
-        npmPublish: true,
+        npmPublish: false,
       },
     ],
     [

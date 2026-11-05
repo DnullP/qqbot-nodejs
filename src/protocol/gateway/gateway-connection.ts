@@ -17,6 +17,7 @@
  */
 
 import WebSocket from "ws";
+import { observeWire, jsonWireBody, type WireObserver } from "../observability.js";
 import type { GatewayAccount, InteractionEvent, Logger, WSPayload } from "../types.js";
 import { decodeGatewayMessageData } from "./codec.js";
 import {
@@ -54,6 +55,7 @@ export interface GatewayDisconnect {
 }
 
 export interface GatewayConnectionOptions {
+  wireObserver?: WireObserver;
   account: GatewayAccount;
   abortSignal: AbortSignal;
   log?: Logger;
@@ -308,6 +310,7 @@ export class GatewayConnection {
 
     ws.on("open", () => {
       if (ws !== this.currentWs) return;
+      observeWire(this.opts.wireObserver,{transport:"websocket",direction:"lifecycle",stage:"open"});
       log?.info(`[${account.accountId}] WebSocket connected`);
       this.isConnecting = false;
       this.reconnect.onSocketOpen();
@@ -316,7 +319,9 @@ export class GatewayConnection {
     ws.on("message", (data) => {
       if (ws !== this.currentWs) return;
       try {
-        const payload = JSON.parse(decodeGatewayMessageData(data)) as WSPayload;
+        const text = decodeGatewayMessageData(data);
+        observeWire(this.opts.wireObserver,{transport:"websocket",direction:"in",stage:"frame",...jsonWireBody(text)},[accessToken,this.opts.account.clientSecret]);
+        const payload = JSON.parse(text) as WSPayload;
         this.handlePayload(ws, payload, accessToken);
       } catch (err) {
         log?.error(`[${account.accountId}] Message parse error: ${toError(err).message}`);
@@ -326,6 +331,7 @@ export class GatewayConnection {
     ws.on("close", (code, reason) => {
       if (ws !== this.currentWs) return;
       const reasonText = reason.toString();
+      observeWire(this.opts.wireObserver,{transport:"websocket",direction:"lifecycle",stage:"close",payload:{code,reason:reasonText}},[accessToken,this.opts.account.clientSecret]);
       log?.info(`[${account.accountId}] WebSocket closed: ${code} ${reasonText}`);
       this.isConnecting = false;
       this.handleClose(code, reasonText);
@@ -333,6 +339,7 @@ export class GatewayConnection {
 
     ws.on("error", (err) => {
       if (ws !== this.currentWs) return;
+      observeWire(this.opts.wireObserver,{transport:"websocket",direction:"lifecycle",stage:"error",payload:{message:err.message}},[accessToken,this.opts.account.clientSecret]);
       log?.error(`[${account.accountId}] WebSocket error: ${err.message}`);
       const { onError } = this.opts;
       if (onError) this.notify("onError", () => onError(err));
@@ -409,10 +416,15 @@ export class GatewayConnection {
     }
   }
 
+  private sendWire(ws: WebSocket, text: string): void {
+    observeWire(this.opts.wireObserver,{transport:"websocket",direction:"out",stage:"frame",...jsonWireBody(text)},[this.opts.account.clientSecret]);
+    ws.send(text);
+  }
+
   private handleHello(ws: WebSocket, d: unknown, accessToken: string): void {
     const intents = this.opts.intents ?? FULL_INTENTS;
     if (this.sessionId && this.lastSeq !== null) {
-      ws.send(
+      this.sendWire(ws,
         JSON.stringify({
           op: GatewayOp.RESUME,
           d: {
@@ -423,7 +435,7 @@ export class GatewayConnection {
         }),
       );
     } else {
-      ws.send(
+      this.sendWire(ws,
         JSON.stringify({
           op: GatewayOp.IDENTIFY,
           d: {
@@ -441,7 +453,7 @@ export class GatewayConnection {
     }
     this.heartbeatInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ op: GatewayOp.HEARTBEAT, d: this.lastSeq }));
+        this.sendWire(ws,JSON.stringify({ op: GatewayOp.HEARTBEAT, d: this.lastSeq }));
       }
     }, interval);
   }

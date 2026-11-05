@@ -286,3 +286,7 @@ Thanks to everyone who has contributed to this project!
 ## License
 
 [MIT](./LICENSE) © Tencent
+
+## Maintained fork additions
+
+See [UPSTREAM.md](UPSTREAM.md) for explicit proactive sends, current interactions, safe opt-in wire observations, account-verification limits and read-only upstream tracking.
